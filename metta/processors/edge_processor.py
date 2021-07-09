@@ -66,8 +66,7 @@ class EdgeProcessor(BaseProcessor):
                     await self._publish(
                         output_msg, source=input_msg.msg.source, trace=output_trace
                     )
-                    if profile:
-                        profiler.register(output_msg)
+                    profiler.register(output_msg)
                 if end_ts is not None and input_msg.msg.timestamp >= end_ts:
                     break
             except Exception as e:

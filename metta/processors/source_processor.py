@@ -56,5 +56,4 @@ class SourceProcessor(BaseProcessor):
                     await self._publish(
                         output_msg, source=self.source_name, trace=output_trace
                     )
-                    if profile:
-                        profiler.register(output_msg)
+                    profiler.register(output_msg)
