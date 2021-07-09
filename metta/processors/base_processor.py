@@ -31,6 +31,7 @@ class BaseProcessor(AsyncExitStack):
         config: Config,
         event_loop: Optional[asyncio.unix_events._UnixSelectorEventLoop] = None,
     ):
+        self.identifer = random.randint(0, 100)
         self.env = config.ENV
         self.source_topic = config.INPUT_PROCESSOR
 
@@ -47,8 +48,9 @@ class BaseProcessor(AsyncExitStack):
             f"{re.sub(r'(?<!^)(?=[A-Z])', '_', self.__class__.name).lower()}-{self.env}"
         )
 
-    def _make_client_id(self) -> str:
-        return f"{self.source_topic}->{self.publish_topic}-{random.randint(0,100)}"
+    @property
+    def client_id(self) -> str:
+        return f"{self.source_topic}->{self.publish_topic}-{self.identifer}"
 
     async def _init_shared_memory(self) -> None:
         self.shm_client = shared_memory.SharedMemoryClient()
@@ -61,6 +63,25 @@ class BaseProcessor(AsyncExitStack):
         async with self.topic_registry as registry:
             await registry.sync()
         logging.info(f"Initialized & synchronized topic registry")
+
+    async def _init_consumer(self) -> None:
+        self.consumer = AIOKafkaConsumer(
+            self.source_topic,
+            loop=self.event_loop,
+            bootstrap_servers=self.kafka_brokers,
+            client_id=self.client_id,
+        )
+        await self.consumer.start()
+        logging.info(f"Initialized consumer for topic {self.source_topic}")
+
+    async def _init_producer(self) -> None:
+        self.producer = AIOKafkaProducer(
+            loop=self.event_loop,
+            bootstrap_servers=self.kafka_brokers,
+            client_id=self.client_id,
+        )
+        await self.producer.start()
+        logging.info(f"Initialized producer for topic {self.publish_topic}")
 
     def _handle_interrupt(self, *args):
         logging.info(f"Interrupted. Exiting.")
@@ -114,7 +135,7 @@ class BaseProcessor(AsyncExitStack):
             return None
 
         output_traces = []
-        for output_msg in output_msgs:
+        for _ in output_msgs:
             trace = input_msg.msg.trace
             if trace is None:
                 trace = proto_profiler.init_trace()

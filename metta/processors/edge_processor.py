@@ -1,7 +1,6 @@
 import asyncio
 import logging
 
-from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from typing import (
     List,
     Optional,
@@ -26,29 +25,9 @@ class EdgeProcessor(BaseProcessor):
             event_loop=event_loop,
         )
 
-    async def _init_kafka_connections(self) -> None:
-        # Init Conumser
-        client_id = self._make_client_id()
-        self.consumer = AIOKafkaConsumer(
-            self.source_topic,
-            loop=self.event_loop,
-            bootstrap_servers=self.kafka_brokers,
-            client_id=client_id,
-        )
-        await self.consumer.start()
-        logging.info(f"Initialized consumer for topic {self.source_topic}")
-
-        # Init Producer
-        self.producer = AIOKafkaProducer(
-            loop=self.event_loop,
-            bootstrap_servers=self.kafka_brokers,
-            client_id=client_id,
-        )
-        await self.producer.start()
-        logging.info(f"Initialized producer for topic {self.publish_topic}")
-
     async def __aenter__(self):
-        await self._init_kafka_connections()
+        await self._init_consumer()
+        await self._init_producer()
         return await super().__aenter__(self)
 
     async def process(

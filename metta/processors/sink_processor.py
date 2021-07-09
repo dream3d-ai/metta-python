@@ -22,19 +22,8 @@ class SinkProcessor(BaseProcessor):
             event_loop=event_loop,
         )
 
-    async def _init_kafka_connections(self) -> None:
-        client_id = self._make_client_id()
-        self.consumer = AIOKafkaConsumer(
-            self.source_topic,
-            loop=self.event_loop,
-            bootstrap_servers=self.kafka_brokers,
-            client_id=client_id,
-        )
-        await self.consumer.start()
-        logging.info(f"Initialized consumer for topic {self.source_topic}")
-
     async def __aenter__(self):
-        await self._init_kafka_connections()
+        await self._init_consumer()
         return await super().__aenter__(self)
 
     async def process(self, input_msg: Message) -> None:

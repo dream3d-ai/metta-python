@@ -1,8 +1,6 @@
 import asyncio
 import proto_profiler
-import logging
 
-from aiokafka import AIOKafkaProducer
 from typing import List, Optional, Tuple
 
 from metta.common.config import SourceConfig
@@ -23,18 +21,8 @@ class SourceProcessor(BaseProcessor):
             event_loop=event_loop,
         )
 
-    async def _init_kafka_connections(self) -> None:
-        client_id = self._make_client_id()
-        self.producer = AIOKafkaProducer(
-            loop=self.event_loop,
-            bootstrap_servers=self.kafka_brokers,
-            client_id=client_id,
-        )
-        await self.producer.start()
-        logging.info(f"Initialized producer for topic {self.publish_topic}")
-
     async def __aenter__(self):
-        await self._init_kafka_connections()
+        await self._init_producer()
         return await super().__aenter__(self)
 
     async def process(
@@ -61,7 +49,6 @@ class SourceProcessor(BaseProcessor):
     ) -> None:
 
         profiler = proto_profiler.ProtoTimer(disable=not profile)
-
         while True:
             output_msgs = await self._process()
             if output_msgs:
