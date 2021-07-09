@@ -22,6 +22,7 @@ typer = { version = "^0.3.2", optional = true }
 proto-profiler = "^0.1.2"
 pydantic = "^1.8.2"
 types-protobuf = "^0.1.13"
+aiozmq = "^0.9.0"
 
 [tool.poetry.extras]
 video = ["ffmpeg-python", "opencv-python", "typer"]

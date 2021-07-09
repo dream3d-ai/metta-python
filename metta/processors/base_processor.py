@@ -1,3 +1,4 @@
+from abc import abstractmethod
 import asyncio
 import random
 import logging
@@ -8,11 +9,14 @@ import proto_profiler
 import uvloop
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from aiozmq import rpc
+from enum import Enum
 from typing import (
     Callable,
     List,
     Optional,
     Tuple,
+    Union,
 )
 from contextlib import AsyncExitStack
 from functools import partial
@@ -24,6 +28,27 @@ from metta.topics.topic_registry import TopicRegistry
 from metta.types.topic_pb2 import DataLocation, TopicMessage
 
 
+class TransportType(Enum):
+    KAFKA = 0
+    ZMQ = 1
+
+
+class BaseHandler(rpc.AttrHandler):
+    def __init__(
+        self,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+        profile: bool = False,
+    ):
+        self.start_ts = start_ts
+        self.end_ts = end_ts
+        self.profiler = proto_profiler.ProtoTimer(disable=not profile)
+
+    @abstractmethod
+    async def consume_msg(self, input_value):
+        pass
+
+
 class BaseProcessor(AsyncExitStack):
     def __init__(
         self,
@@ -31,15 +56,19 @@ class BaseProcessor(AsyncExitStack):
         config: Config,
         event_loop: Optional[asyncio.unix_events._UnixSelectorEventLoop] = None,
     ):
+        self.identifer = random.randint(0, 100)
         self.env = config.ENV
         self.source_topic = config.INPUT_PROCESSOR
+        self.data_location = config.DATA_LOCATION
 
         self.kafka_brokers = config.BROKERS
         self.zk_hosts = config.ZOOKEEPER_HOSTS
         self.event_loop = event_loop
 
-        self.consumer: AIOKafkaConsumer
-        self.producer: AIOKafkaProducer
+        self.transport: TransportType
+        self.handler: BaseHandler
+        self.consumer: Union[AIOKafkaConsumer, rpc.PubSubClient]
+        self.producer: Union[AIOKafkaProducer, rpc.PubSubService]
 
     @property
     def publish_topic(self):
@@ -47,8 +76,9 @@ class BaseProcessor(AsyncExitStack):
             f"{re.sub(r'(?<!^)(?=[A-Z])', '_', self.__class__.name).lower()}-{self.env}"
         )
 
-    def _make_client_id(self) -> str:
-        return f"{self.source_topic}->{self.publish_topic}-{random.randint(0,100)}"
+    @property
+    def client_id(self) -> str:
+        return f"{self.source_topic}->{self.publish_topic}-{self.identifer}"
 
     async def _init_shared_memory(self) -> None:
         self.shm_client = shared_memory.SharedMemoryClient()
@@ -61,6 +91,26 @@ class BaseProcessor(AsyncExitStack):
         async with self.topic_registry as registry:
             await registry.sync()
         logging.info(f"Initialized & synchronized topic registry")
+
+    async def _init_consumer(self) -> None:
+        # TODO: lookup data location
+        self.consumer = AIOKafkaConsumer(
+            self.source_topic,
+            loop=self.event_loop,
+            bootstrap_servers=self.kafka_brokers,
+            client_id=self.client_id,
+        )
+        await self.consumer.start()
+        logging.info(f"Initialized consumer for topic {self.source_topic}")
+
+    async def _init_kafka_producer(self) -> None:
+        self.producer = AIOKafkaProducer(
+            loop=self.event_loop,
+            bootstrap_servers=self.kafka_brokers,
+            client_id=self.client_id,
+        )
+        await self.producer.start()
+        logging.info(f"Initialized producer for topic {self.publish_topic}")
 
     def _handle_interrupt(self, *args):
         logging.info(f"Interrupted. Exiting.")
@@ -77,12 +127,15 @@ class BaseProcessor(AsyncExitStack):
         return self
 
     async def __aexit__(self, __exc_type, __exc_value, __traceback):
-        if self.consumer is not None:
-            logging.info(f"Closing consumer")
+        if isinstance(self.consumer, AIOKafkaConsumer):
             await self.consumer.stop()
-        if self.producer is not None:
-            logging.info(f"Closing producer")
+        else:
+            await self.consumer.close()
+
+        if isinstance(self.producer, AIOKafkaProducer):
             await self.producer.stop()
+        else:
+            await self.producer.close()
 
     async def _parse(self, msg: str) -> Message:
         topic_msg = TopicMessage.FromString(msg)
@@ -114,7 +167,7 @@ class BaseProcessor(AsyncExitStack):
             return None
 
         output_traces = []
-        for output_msg in output_msgs:
+        for _ in output_msgs:
             trace = input_msg.msg.trace
             if trace is None:
                 trace = proto_profiler.init_trace()
@@ -144,6 +197,17 @@ class BaseProcessor(AsyncExitStack):
             timestamp_ms=msg.timestamp,
         )
 
+    async def run(
+        self,
+    ) -> None:
+        if isinstance(self.consumer, AIOKafkaConsumer):
+            async for record in self.consumer():
+                try:
+                    self.handler.consume_msg(record.value)
+                except Exception as e:
+                    logging.error(e)
+                    break
+
     def register(self, forward_fn: Callable[[List[Message]], Optional[NewMessage]]):
         def _fn(self, fn, inputs):
             return fn(inputs)
@@ -163,3 +227,83 @@ class BaseProcessor(AsyncExitStack):
 
         uvloop.install()
         asyncio.run(_run())
+
+
+class SourceHandler(rpc.AttrHandler):
+    def __init__(
+        self,
+        processor: BaseProcessor,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+        profile: bool = False,
+    ):
+        self.processor = processor
+        self.start_ts = start_ts
+        self.end_ts = end_ts
+
+    @rpc.method
+    async def consume_msg(self, input_value):
+        output_msgs = await self._process()
+        if output_msgs:
+            for (output_msg, output_trace) in output_msgs:
+                await self._publish(
+                    output_msg, source=self.source_name, trace=output_trace
+                )
+                self.profiler.register(output_msg)
+
+
+class EdgeHandler(BaseHandler):
+    def __init__(
+        self,
+        processor: BaseProcessor,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+        profile: bool = False,
+    ):
+        self.processor = processor
+        super().__init__(start_ts, end_ts, profile)
+
+    @rpc.method
+    async def consume_msg(self, input_value):
+        input_msg = await self.processor._parse(input_value)
+        output_msgs = await self.processor._process(input_msg)
+        for (output_msg, output_trace) in output_msgs:  # type: ignore
+            if self.processor.data_location == DataLocation.MESSAGE:
+                await self.processor._publish(
+                    output_msg, source=input_msg.msg.source, trace=output_trace
+                )
+            else:
+                # put it into the output topic
+                pass
+            self.profiler.register(output_msg)
+
+
+class SinkHandler(BaseHandler):
+    def __init__(
+        self,
+        processor: BaseProcessor,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+        profile: bool = False,
+    ):
+        self.processor = processor
+        super().__init__(start_ts, end_ts, profile)
+
+    @rpc.method
+    async def consume_msg(self, input_value):
+        try:
+            input_msg = await self.processor._parse(input_value)
+            output_msgs = await self.processor._process(input_msg)
+            for (output_msg, output_trace) in output_msgs:  # type: ignore
+                if self.processor.data_location == DataLocation.MESSAGE:
+                    await self.processor._publish(
+                        output_msg, source=input_msg.msg.source, trace=output_trace
+                    )
+                else:
+                    pass
+                if self.profile:
+                    proto_profiler.register(output_msg)
+            if self.end_ts is not None and input_msg.msg.timestamp >= self.end_ts:
+                exit(0)
+        except Exception as e:
+            logging.error(e)
