@@ -1,0 +1,13 @@
+# general
+.vscode
+.idea
+.DS_STORE
+
+# python
+*.pyc
+*.egg-info
+python/dist
+python/dist/*
+*/__pycache__/*
+*.mypy_cache/
+dist/

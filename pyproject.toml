@@ -1,0 +1,39 @@
+[tool.poetry]
+name = "metta"
+version = "1.0.0"
+description = "Micro-service framework for real-time machine learning applications"
+license = "MIT"
+authors = ["Tony Francis <tonyfrancisv@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.8.2"
+Cython = "^0.29.21"
+protobuf = "^3.14.0"
+blosc = "^1.10.1"
+aiokafka = "^0.7.0"
+numpy = "^1.19.4"
+pyarrow = "^2.0.0"
+kafka-python = "^2.0.2"
+opencv-python = { version = "^4.5.1", optional = true }
+uvloop = "^0.14.0"
+aiozk = "^0.28.0"
+nptyping = "^1.4.0"
+typer = { version = "^0.3.2", optional = true }
+proto-profiler = "^0.1.2"
+pydantic = "^1.8.2"
+types-protobuf = "^0.1.13"
+
+[tool.poetry.extras]
+video = ["ffmpeg-python", "opencv-python", "typer"]
+
+
+[tool.poetry.dev-dependencies]
+black = "^20.8b1"
+setuptools = "^51.1.1"
+ipython = "^7.19.0"
+mypy-protobuf = "^2.4"
+mypy = "^0.910"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

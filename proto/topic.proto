@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+import "proto/trace.proto";
+
+enum DataLocation {
+    CPU = 0;
+    GPU = 1;
+    CPU_NDARRAY = 2;
+    GPU_NDARRAY = 3;
+    MESSAGE = 4;
+}
+
+message TopicMessage {
+    string topic = 1;
+    string source = 2;
+    uint64 timestamp = 3;
+    Trace trace = 4;
+    bytes data = 5;
+}

@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+import "proto/dtype.proto";
+
+// https://github.com/telamonian/numpy-protobuf
+
+/**
+ * aiming for a minimal representation based the __array_interface__
+ * see https://docs.scipy.org/doc/numpy/reference/arrays.interface.html
+ */
+message NDArray {
+    repeated int64 shape = 1;
+    dtype dtype = 101;
+    bytes data = 201;
+    repeated int64 strides = 301;
+}

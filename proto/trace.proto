@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+
+message Trace {
+    // UID
+    string id = 1;
+    // Touches
+    repeated TraceTouch touches = 2;
+}
+
+message TraceTouch {
+    string name = 1;
+    int64 time = 2;
+}
