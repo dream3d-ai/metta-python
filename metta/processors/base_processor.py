@@ -13,6 +13,7 @@ from typing import (
     List,
     Optional,
     Tuple,
+    Union,
 )
 from contextlib import AsyncExitStack
 from functools import partial
@@ -22,6 +23,7 @@ from metta.common.config import Config
 from metta.topics.topics import Message, NewMessage
 from metta.topics.topic_registry import TopicRegistry
 from metta.types.topic_pb2 import DataLocation, TopicMessage
+from metta.common.zmq import AIOZMQProducer, AIOZMQConsumer
 
 
 class BaseProcessor(AsyncExitStack):
@@ -32,15 +34,20 @@ class BaseProcessor(AsyncExitStack):
         event_loop: Optional[asyncio.unix_events._UnixSelectorEventLoop] = None,
     ):
         self.identifer = random.randint(0, 100)
+
         self.env = config.ENV
+        self.data_location = config.DATA_LOCATION
+
+        self.source_host = config.INPUT_HOST
         self.source_topic = config.INPUT_PROCESSOR
+        self.source_data_location = config.INPUT_DATA_LOCATION
 
         self.kafka_brokers = config.BROKERS
         self.zk_hosts = config.ZOOKEEPER_HOSTS
         self.event_loop = event_loop
 
-        self.consumer: AIOKafkaConsumer
-        self.producer: AIOKafkaProducer
+        self.consumer: Union[AIOKafkaConsumer, AIOZMQConsumer]
+        self.producer: Union[AIOKafkaProducer, AIOZMQProducer]
 
     @property
     def publish_topic(self):
@@ -65,21 +72,32 @@ class BaseProcessor(AsyncExitStack):
         logging.info(f"Initialized & synchronized topic registry")
 
     async def _init_consumer(self) -> None:
-        self.consumer = AIOKafkaConsumer(
-            self.source_topic,
-            loop=self.event_loop,
-            bootstrap_servers=self.kafka_brokers,
-            client_id=self.client_id,
-        )
+        if self.source_data_location == DataLocation.MESSAGE:
+            self.consumer = AIOKafkaConsumer(
+                self.source_topic,
+                loop=self.event_loop,
+                bootstrap_servers=self.kafka_brokers,
+                client_id=self.client_id,
+            )
+        else:
+            if self.source_host is None or self.source_topic is None:
+                raise Exception("Invalid config")
+            self.consumer = AIOZMQConsumer(
+                input_host=self.source_host,
+                topic=self.source_topic,
+            )
         await self.consumer.start()
         logging.info(f"Initialized consumer for topic {self.source_topic}")
 
     async def _init_producer(self) -> None:
-        self.producer = AIOKafkaProducer(
-            loop=self.event_loop,
-            bootstrap_servers=self.kafka_brokers,
-            client_id=self.client_id,
-        )
+        if self.data_location == DataLocation.MESSAGE:
+            self.producer = AIOKafkaProducer(
+                loop=self.event_loop,
+                bootstrap_servers=self.kafka_brokers,
+                client_id=self.client_id,
+            )
+        else:
+            self.producer = AIOZMQProducer()
         await self.producer.start()
         logging.info(f"Initialized producer for topic {self.publish_topic}")
 

@@ -11,20 +11,11 @@ class Config(BaseSettings):
     ZOOKEEPER_HOSTS: List[str]
 
     INPUT_PROCESSOR: Optional[str] = None
+    INPUT_HOST: Optional[str] = None
+    INPUT_DATA_LOCATION: Optional[DataLocation] = None
     SOURCE_FILTERS: List[str] = []
 
     DATA_LOCATION: Optional[DataLocation] = None
-    DATA_TARGETS: List[AnyHttpUrl] = []
-
-    @validator("DATA_TARGET")
-    def target_set(cls, targets, values, **kwargs):
-        if (
-            "DATA_LOCATION" in values
-            and (values["DATA_LOCATION"] == DataLocation.CPU_NDARRAY)
-            and not targets
-        ):
-            raise ValueError("Data targets not set")
-        return targets
 
     class Config:
         case_sensitive = True
@@ -38,5 +29,12 @@ class SourceConfig(Config):
     DATA_LOCATION: DataLocation
 
 
+class EdgeConfig(Config):
+    DATA_LOCATION: DataLocation
+    INPUT_PROCESSOR: str
+    INPUT_DATA_LOCATION: DataLocation
+
+
 class SinkConfig(Config):
     INPUT_PROCESSOR: str
+    INPUT_DATA_LOCATION: DataLocation
