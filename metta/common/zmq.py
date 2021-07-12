@@ -1,18 +1,27 @@
-from typing import Any
+from typing import Any, AsyncIterable
 import aiozmq
 import zmq
 
 
 class Record:
-    value: Any
+    def __init__(self, value: str):
+        self.value = value
+
+
+class ConsumerStoppedError(Exception):
+    pass
 
 
 class AIOZMQConsumer:
     def __init__(self, input_host: str, topic: str) -> None:
         self.input_host = input_host
         self.topic = topic
+        self._closed = True
+
+    __call__ = lambda x: x.__aiter__()
 
     async def start(self):
+        self._closed = False
         self.stream = await aiozmq.stream.create_zmq_stream(
             zmq_type=zmq.SUB,
             connect=self.input_host,
@@ -21,13 +30,26 @@ class AIOZMQConsumer:
 
     async def stop(self):
         self.stream.close()
+        self._closed = True
 
     async def __aiter__(self):
-        while True:
-            yield Record(value=await self.stream.read())
+        if self._closed:
+            raise ConsumerStoppedError
+        return self
 
-    async def __anext__(self):
-        raise StopAsyncIteration
+    async def __anext__(self) -> Record:
+        while True:
+            try:
+                return Record(value=await self.stream.read())
+            except ConsumerStoppedError:
+                raise StopAsyncIteration  # noqa: F821
+
+    async def __aenter__(self):
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.stop()
 
 
 class AIOZMQProducer:

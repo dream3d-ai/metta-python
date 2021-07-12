@@ -1,8 +1,8 @@
 import asyncio
 import logging
 
-from aiokafka import AIOKafkaConsumer
 from typing import Optional
+from aiokafka.consumer.consumer import AIOKafkaConsumer
 
 from metta.common.config import SinkConfig
 from metta.topics.topics import Message, NewMessage
@@ -40,12 +40,11 @@ class SinkProcessor(BaseProcessor):
             self.consumer is not None
         ), "Cannot consume messages. Consumer not initialized"
 
-        if start_ts is not None and seek_to_latest:
+        if start_ts is not None and not isinstance(self.consumer, AIOKafkaConsumer):
             raise RuntimeError(
-                "Cannot start processor. start_ts and seek_to_latest cannot be used together"
+                "Cannot start processor. start_ts cannot be used with shared memory processor"
             )
-
-        if start_ts is not None:
+        elif start_ts is not None and isinstance(self.consumer, AIOKafkaConsumer):
             partitions = self.consumer.partitions_for_topic(self.source_topic)
             offsets = self.consumer.offsets_for_times(
                 {partition: start_ts for partition in partitions}

@@ -5,7 +5,7 @@ from typing import (
     List,
     Optional,
 )
-
+from aiokafka.consumer.consumer import AIOKafkaConsumer
 from proto_profiler import ProtoTimer
 
 from metta.common.config import Config
@@ -48,7 +48,11 @@ class EdgeProcessor(BaseProcessor):
                 "Cannot start processor. start_ts and seek_to_latest cannot be used together"
             )
 
-        if start_ts is not None:
+        if start_ts is not None and not isinstance(self.consumer, AIOKafkaConsumer):
+            raise RuntimeError(
+                "Cannot start processor. start_ts cannot be used with shared memory processor"
+            )
+        elif start_ts is not None and isinstance(self.consumer, AIOKafkaConsumer):
             partitions = self.consumer.partitions_for_topic(self.source_topic)
             offsets = self.consumer.offsets_for_times(
                 {partition: start_ts for partition in partitions}
@@ -57,7 +61,6 @@ class EdgeProcessor(BaseProcessor):
                 self.consumer.seek(parition, offset_and_ts.offset)
 
         profiler = ProtoTimer(disable=not profile)
-
         async for record in self.consumer():
             try:
                 input_msg = await self._parse(record.value)
