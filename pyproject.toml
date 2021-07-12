@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "metta"
-version = "2.0.0"
+version = "2.1.0"
 description = "Micro-service framework for real-time machine learning applications"
 license = "Apache v2.0"
 authors = ["Tony Francis <tonyfrancisv@gmail.com>"]
