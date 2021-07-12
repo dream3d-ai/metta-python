@@ -2,7 +2,7 @@
 name = "metta"
 version = "1.0.0"
 description = "Micro-service framework for real-time machine learning applications"
-license = "MIT"
+license = "Apache v2.0"
 authors = ["Tony Francis <tonyfrancisv@gmail.com>"]
 
 [tool.poetry.dependencies]
